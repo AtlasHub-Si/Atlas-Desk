@@ -12,21 +12,31 @@
 import type { McpToolDefinition } from "../types";
 import { amigoTools } from "./amigo";
 import { TOOL_CATALOG, VALID_TOOL_IDS } from "./catalog";
-import { crmSearchContacts, crmGetContact, crmProposeContactField } from "./contacts";
+import { crmSearchContacts, crmGetContact, crmProposeContactField, crmUpdateContact } from "./contacts";
+import {
+  crmPauseAi,
+  crmResumeAi,
+  crmCloseConversation,
+  crmReopenConversation,
+} from "./comandos-de-conversa";
 import {
   crmListConversations,
+  crmCountConversations,
   crmGetConversation,
   crmGetConversationHistory,
   crmCreateConversationDraft,
 } from "./conversations";
 import {
   crmListLeads,
+  crmCountLeads,
   crmGetLead,
   crmCreateLead,
   crmUpdateLead,
   crmMoveLeadStage,
   crmRetomarLead,
   crmProposeLeadFieldsFromDocument,
+  crmListLeadAttachments,
+  crmGetLeadAttachment,
 } from "./leads";
 import { crmGetPipelineForecast, crmListPipelines } from "./pipelines";
 import { crmSendMaterial, crmSendWhatsappMessage } from "./messages";
@@ -98,6 +108,16 @@ import {
   crmProposeReactivation,
 } from "./retencao";
 import { crmDraftProposal, crmPrepararProposta } from "./propostas";
+import {
+  crmGetAiAgentTurn,
+  crmGetAiAgentVersion,
+  crmListAiAgents,
+  crmPublishAiAgentVersion,
+  crmRollbackAiAgent,
+  crmSaveAiAgentDraft,
+  crmTestAiAgentVersion,
+} from "./agentes";
+import { crmCreateTask, crmListTasks, crmUpdateTask } from "./tarefas";
 import { crmSaveLeadDiagnosis } from "./diagnostico";
 
 // Cast via `unknown` porque McpToolDefinition<TInput> nao e covariante
@@ -115,12 +135,25 @@ export const allTools: ReadonlyArray<McpToolDefinition> = [
   crmSearchContacts,
   crmGetContact,
   crmProposeContactField,
+  crmUpdateContact,
   crmListConversations,
+  crmCountConversations,
+  // #4517 — os quatro comandos da conversa, por token e pelo agente.
+  crmPauseAi,
+  crmResumeAi,
+  crmCloseConversation,
+  crmReopenConversation,
   crmGetConversation,
   crmGetConversationHistory,
   crmGetQueueStatus,
   crmListLeads,
+  crmCountLeads,
   crmGetLead,
+  // #4544 (item 2) — o documento anexado ao card: listar para descobrir o id,
+  // ler para tirar dali os valores. Entram logo depois do get_lead porque são a
+  // leitura do MESMO negócio, um nível abaixo.
+  crmListLeadAttachments,
+  crmGetLeadAttachment,
   crmListPipelines,
   crmGetPipelineForecast,
   crmSearchKnowledge,
@@ -138,6 +171,7 @@ export const allTools: ReadonlyArray<McpToolDefinition> = [
   crmConsultarReceita,
   crmListPrivacyRequests,
   crmGetProspectingSiteAudit,
+  crmListTasks,
   // read — organizar a operação (W4)
   crmListStages,
   crmListTags,
@@ -153,6 +187,10 @@ export const allTools: ReadonlyArray<McpToolDefinition> = [
   crmListAvailableAttendants,
   crmListHumanCases,
   crmGetHumanCase,
+  // read — editar os assistentes de IA (só admin; ver `./agentes.ts`)
+  crmListAiAgents,
+  crmGetAiAgentVersion,
+  crmGetAiAgentTurn,
   // write
   // A que consulta E marca numa chamada só vem primeiro: quando o cliente já deu
   // dia e hora, é o caminho curto, e é o que evita o turno morrer no meio (#831).
@@ -199,6 +237,13 @@ export const allTools: ReadonlyArray<McpToolDefinition> = [
   crmCloseHumanCase,
   crmResumeAiAttendance,
   crmDraftProposal,
+  // write — editar os assistentes de IA: rascunho, teste, publicar, reverter
+  crmSaveAiAgentDraft,
+  crmTestAiAgentVersion,
+  crmPublishAiAgentVersion,
+  crmRollbackAiAgent,
+  crmCreateTask,
+  crmUpdateTask,
   // handoff (special)
   crmRequestHumanHandoff,
 ] as unknown as ReadonlyArray<McpToolDefinition>;

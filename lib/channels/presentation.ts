@@ -9,6 +9,10 @@ export function channelBrand(
     case "datafy":
     case "wacalls":
       return "whatsapp";
+    case "telegram":
+      return "telegram";
+    case "webchat":
+      return "webchat";
     case "zernio_social":
       if (session.social_platform === "instagram") return "instagram";
       if (session.social_platform === "facebook") return "messenger";
