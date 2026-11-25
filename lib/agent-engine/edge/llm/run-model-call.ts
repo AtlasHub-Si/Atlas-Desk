@@ -24,7 +24,7 @@ import { z } from 'zod';
 
 import { PROVEDOR_POR_ASSINATURA } from '@/lib/ai/pontos/provedores';
 import { chamarComRetryUnicoEm401 } from '@/lib/ai/pontos/renovacao-da-assinatura';
-import { sincronizarAvisoDaAssinatura } from '@/lib/ai/credenciais/aviso-da-assinatura';
+import { avisarIaFora, fecharAvisoDaIaForaPelaChamada, sincronizarAvisoDaAssinatura } from '@/lib/ai/credenciais/aviso-da-assinatura';
 import { renovarAssinaturaNoTurno, lerLoginCodex } from '@/lib/ai/credenciais/login-codex';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { PONTO_POR_ID } from '@/lib/ai/pontos/registro';
@@ -67,9 +67,9 @@ import {
   SQL_ORCAMENTO,
   type ChaveDeOrcamento,
 } from './orcamento';
-import { corpoComoObjeto, custoInformadoPeloOpenRouter, custoTerraPorPassos, costCents, gravacaoDeUmaHora } from './pricing';
+import { corpoComoObjeto, custoInformadoPeloOpenRouter, custoPorPassosComFaixaLonga, costCents, gravacaoDeUmaHora } from './pricing';
 import { custoDoModeloForaDoMotor } from './pricing-do-catalogo';
-import { decidirCustoDaChamada } from './custo-da-chamada';
+import { decidirCustoDaChamada, haUsoMedido } from './custo-da-chamada';
 import { chaveDeOrcamentoDaInstalacao } from '../../../instalacao/comportamento';
 import { cobrancaLigadaComMemo } from '../../../instalacao/modulos';
 import { createDefaultRegistry, ehOpenRouterOficial, type ProviderRegistry } from './providers';
@@ -876,6 +876,19 @@ export function corpoDaOpenRouterNoResultado(
   return provider === 'openrouter' && ehOpenRouterOficial(baseUrl) ? { include: { responseBody: true } } : {};
 }
 
+/**
+ * As organizações em que ESTE processo abriu o aviso de "a IA inteira está fora"
+ * (#4610) e ainda não viu uma chamada passar.
+ *
+ * Existe para o fechamento custar uma query RARA em vez de uma por chamada:
+ * `runModelCall` é o caminho quente de todo turno, classificação e compaction, e
+ * um `update` na Central em cada sucesso seria pagar por um aviso que quase
+ * nunca está aberto. O preço do memo é de processo: quem reiniciar com um item
+ * aberto só o fecha no próximo sucesso que ele mesmo presenciar — e o item
+ * continua verdadeiro nesse intervalo.
+ */
+const organizacoesComAvisoDeIaFora = new Set<string>();
+
 export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunModelCallInput, deps: RunModelCallDeps = {}) {
   // O knob do raciocínio da DeepSeek entra pela fábrica: `deepseekThinking` só é
   // lido pela fábrica `deepseek`, então os outros provedores não têm como mudar.
@@ -1500,13 +1513,31 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
   let erroDaAssinatura: ReturnType<typeof normalizarErro> | null = null;
 
   /**
+   * QUEM caiu (#4610). `config` é trocada pela reserva logo abaixo, e a partir
+   * dali `config.provider` é o provedor que assumiu — sem esta variável o aviso
+   * diria que a reserva recusou duas vezes.
+   */
+  let provedorQueCaiu: string | null = null;
+
+  /**
+   * O erro da assinatura, lido por uma FUNÇÃO (#4610).
+   *
+   * O `let` acima é atribuído dentro do `catch` aninhado, e o TypeScript não
+   * propaga essa atribuição para o `catch` de fora: lá ele estreita o valor para
+   * `null` e qualquer `!== null` vira `never`. A leitura por closure devolve o
+   * tipo DECLARADO — a união — e é o único jeito de usar os campos dos dois
+   * lados sem um cast que mentiria.
+   */
+  const erroDaAssinaturaQueCaiu = (): ReturnType<typeof normalizarErro> | null => erroDaAssinatura;
+
+  /**
    * Os campos do erro da assinatura para o log — o MESMO trio no aviso da queda
    * e no log da falha final. É função, e não expressão no call site, porque o
    * `catch` do `try` de dentro não estreita o tipo deste `let` lá fora (o TS lê
    * `never` no ramo positivo); e porque um nome só descreve o que foi perdido.
    */
   const camposDaAssinaturaQueCaiu = (): Record<string, unknown> => {
-    const erro = erroDaAssinatura;
+    const erro = erroDaAssinaturaQueCaiu();
     if (erro === null) return {};
     return {
       http_status_da_assinatura: erro.http_status,
@@ -1534,6 +1565,9 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
         // A troca ANTES da nova tentativa: se a reserva também falhar, a linha de
         // `llm_calls` grava o provedor que de fato falhou por último, e não o que
         // a chamada começou a falar.
+        // #4610: guardar QUEM caiu também — o aviso da Central é escrito depois da
+        // troca, e sem isto diria que a reserva recusou duas vezes.
+        provedorQueCaiu = config.provider;
         config = reserva;
         await gateDeOrcamento(reserva);
         // #4610: a queda troca `config` pela reserva e a falha que sobe é a DELA;
@@ -1577,7 +1611,8 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
     // também cair. O fechamento tem reserva de formato própria, em
     // `agent/abertura/checkpoint.ts` (`fecharOTurno`).
     const reservaDoModelo = decisao.reserva;
-    const { error_code: codigoDaFalha, http_status: statusDaFalha } = normalizarErro(err);
+    const falhaDaReserva = normalizarErro(err);
+    const { error_code: codigoDaFalha, http_status: statusDaFalha } = falhaDaReserva;
     const fabricaAtual = registry[config.provider];
     const vaiParaAReservaDoModelo =
       reservaDoModelo !== undefined &&
@@ -1619,6 +1654,51 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
         conectada: false,
         recusa: renovacaoDoTurno.recusa,
       }).catch(() => 'falhou');
+    }
+    // ─── A IA INTEIRA FORA VIRA AVISO NA CENTRAL (#4610) ──────────────────────
+    //
+    // `erroDaAssinatura !== null` é a marca de que a queda aconteceu: a
+    // assinatura recusou, a chamada foi para a reserva e a reserva também
+    // recusou. Não sobrou provedor nenhum para esta organização — o cliente
+    // escreve e fica sem resposta.
+    //
+    // O aviso do #3598 só abria com 401 de LOGIN. No incidente de 06/11 o login
+    // estava "ok" e a assinatura recusava chamadas: seis horas de agentes mudos
+    // com a Central mostrando só um `job_dead` genérico. Aqui o aviso abre pelo
+    // fato que importa — as duas credenciais recusaram —, com o erro ORIGINAL de
+    // cada lado (já redigido e truncado por `normalizarErro`).
+    const assinaturaQueCaiu = erroDaAssinaturaQueCaiu();
+    if (assinaturaQueCaiu !== null) {
+      const desfecho = await avisarIaFora(createAdminClient(), {
+        organizationId: input.tenantId,
+        assinatura: {
+          provider: provedorQueCaiu ?? PROVEDOR_POR_ASSINATURA,
+          http_status: assinaturaQueCaiu.http_status,
+          error_code: assinaturaQueCaiu.error_code,
+          error_message: assinaturaQueCaiu.error_message,
+        },
+        reserva: {
+          provider: config.provider,
+          http_status: falhaDaReserva.http_status,
+          error_code: falhaDaReserva.error_code,
+          error_message: falhaDaReserva.error_message,
+        },
+      }).catch(() => 'falhou' as const);
+      // O memo é o que permite fechar o aviso quando uma chamada voltar a
+      // passar sem pagar uma query por chamada bem-sucedida (ver
+      // `organizacoesComAvisoDeIaFora`).
+      if (desfecho !== 'falhou') organizacoesComAvisoDeIaFora.add(input.tenantId);
+      deps.log?.error('llm: a assinatura E a reserva falharam — a IA desta empresa está fora', {
+        organization_id: input.tenantId,
+        purpose,
+        provedor_da_assinatura: provedorQueCaiu ?? PROVEDOR_POR_ASSINATURA,
+        provedor_da_reserva: config.provider,
+        http_status_da_assinatura: assinaturaQueCaiu.http_status,
+        erro_da_assinatura: assinaturaQueCaiu.error_message,
+        http_status_da_reserva: falhaDaReserva.http_status,
+        erro_da_reserva: falhaDaReserva.error_message,
+        aviso_na_central: desfecho,
+      });
     }
     const camposDaFalha = {
       organization_id: input.tenantId,
@@ -1674,6 +1754,28 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
   }
   const latencyMs = Date.now() - startedAt;
 
+  // ─── UMA CHAMADA PASSOU: O EPISÓDIO "IA FORA" ACABOU (#4610) ────────────────
+  //
+  // Aviso que só fecha no clique de alguém vira lista que ninguém lê — mesma
+  // doutrina do `canal-pausado` (#2389) e do próprio aviso da assinatura. Aqui o
+  // sinal de volta é o único honesto: uma chamada de IA respondeu.
+  //
+  // A query é condicionada ao memo de processo (`organizacoesComAvisoDeIaFora`):
+  // sem ele, TODO sucesso pagaria um `update` na Central para fechar um aviso
+  // que quase nunca está aberto, no caminho quente de cada turno.
+  if (organizacoesComAvisoDeIaFora.has(input.tenantId)) {
+    const desfecho = await fecharAvisoDaIaForaPelaChamada(createAdminClient(), input.tenantId).catch(
+      () => 'falhou' as const,
+    );
+    // `falhou` mantém o memo: a próxima chamada que passar tenta de novo.
+    if (desfecho !== 'falhou') organizacoesComAvisoDeIaFora.delete(input.tenantId);
+    deps.log?.info('llm: uma chamada voltou a passar — aviso da IA fora sincronizado', {
+      organization_id: input.tenantId,
+      purpose,
+      desfecho,
+    });
+  }
+
   const cacheWriteTokens = result.usage.inputTokenDetails.cacheWriteTokens ?? 0;
   const cacheWrite1hTokens = gravacaoDeUmaHora(usosCrusDosPassos(result), cacheWriteTokens);
   const usage = {
@@ -1694,9 +1796,8 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
   // preço da linha sai do catálogo da INSTALAÇÃO (`ai_models`/`ai_pricing`, as
   // mesmas tabelas que `lib/ai/cost.ts` e `lib/ai/runtime/cost.ts` já consultam).
   // Sem preço em nenhum dos dois o custo continua `null` — mas com aviso no log,
-  // nunca calado, e nunca um 0 inventado. O caminho dos modelos que já têm linha
-  // na tabela estática não muda uma vírgula: `costCents` segue sendo chamado
-  // primeiro, e só o `null` dele chega aqui.
+  // nunca calado, e nunca um 0 inventado. Modelos com faixa longa usam a
+  // mesma tabela por passo, pois a soma do turno não determina o preço.
   //
   // Na OpenRouter oficial, o número que vale é o que ELA cobrou (`usage.cost` de
   // cada passo, com a regra de BYOK em `custoInformadoPeloOpenRouter`): ela só
@@ -1705,8 +1806,8 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
   // número (campo ausente), vale a tabela, como antes. `config` já é a reserva
   // quando a assinatura cai nela. Gateway do operador NUNCA informa o próprio
   // custo: o critério é o endereço da chamada que de fato rodou.
-  // A REGRA ÚNICA mora em `custo-da-chamada.ts` (issue #4697): as quatro
-  // entradas abaixo são só RESOLUÇÃO — o que vale, em que ordem e com que
+  // A REGRA ÚNICA mora em `custo-da-chamada.ts` (issue #4697): os
+  // valores abaixo são só RESOLUÇÃO — o que vale, em que ordem e com que
   // marca é decidido num lugar só. Antes, três `??` encadeados aqui decidiam
   // em silêncio, e o mesmo modelo saía com custo numas linhas e nulo noutras
   // sem ninguém conseguir apontar a regra.
@@ -1718,13 +1819,12 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
     config.provider === 'openrouter' && ehOpenRouterOficial(baseUrlDaChamadaEfetiva)
       ? custoInformadoPeloOpenRouter(result)
       : undefined;
-  const porPassosDoTerra = informado === undefined ? custoTerraPorPassos(model, result) : undefined;
   const daTabelaDoMotor =
-    informado === undefined && porPassosDoTerra === undefined
-      ? costCents(model, usage, cfg.cacheTtl ?? '1h')
+    informado === undefined
+      ? (custoPorPassosComFaixaLonga(model, result) ?? costCents(model, usage, cfg.cacheTtl ?? '1h'))
       : null;
   const doCatalogoDaInstalacao =
-    daTabelaDoMotor === null && informado === undefined && porPassosDoTerra === undefined
+    daTabelaDoMotor === null && informado === undefined
       ? await custoDoModeloForaDoMotor(db, {
           model,
           provider: config.provider,
@@ -1734,8 +1834,10 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
       : null;
   const decidido = decidirCustoDaChamada({
     provider: config.provider,
+    // O corte de DADO (issue #4697): resposta sem `usage` não vira `0`
+    // (preço × 0 token) — vira nulo com motivo `sem_uso`.
+    temUso: haUsoMedido(usage),
     informadoPeloProvedor: informado,
-    porPassosDoTerra,
     daTabelaDoMotor,
     doCatalogoDaInstalacao,
   });

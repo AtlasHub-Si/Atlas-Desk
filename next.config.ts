@@ -113,16 +113,50 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/(.*)",
+        // Tudo menos `/chat/`: a janela do chat é embutida em site de cliente (iframe), então
+        // não pode levar `X-Frame-Options: DENY` nem `frame-ancestors 'none'`. Ver o bloco abaixo.
+        source: "/((?!chat/).*)",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // O proxy na frente não manda HSTS — o Caddy do kit não manda, e o Traefik
+          // da hospedagem e o Cloudflare só mandam se alguém configurar: quem responde
+          // pelo transporte é a origem. Sem isto, quem já abriu o painel em https e
+          // depois chega por http volta a trafegar em claro.
+          // Sem includeSubDomains: o domínio é do cliente e pode ser o apex; o app
+          // não sabe se os subdomínios dele têm HTTPS.
+          { key: "Strict-Transport-Security", value: "max-age=31536000" },
+          // CSP curta de propósito: `frame-ancestors` repete o DENY para navegador
+          // que só entende CSP, `base-uri` impede tag injetada de mudar a base dos
+          // links relativos e `form-action` impede formulário forjado para fora.
+          // `script-src`/`style-src` ficam de fora: o Next injeta bootstrap inline e
+          // o app abre WebSocket — política sem nonce quebraria a tela, e política
+          // que quebra tela acaba desligada por quem opera.
+          {
+            key: "Content-Security-Policy",
+            value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+          },
           // microphone=(self): o gravador de voz do composer (PTT estilo WhatsApp)
           // usa getUserMedia({audio}); microphone=() bloquearia em TODA origem,
           // inclusive a própria — daria "microphone is not allowed in this document".
           // Câmera e geolocalização seguem bloqueadas (não usadas).
           // notifications=(self): bandeja do SO quando a janela está minimizada.
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(self), geolocation=(), notifications=(self)",
+          },
+        ],
+      },
+      {
+        // A janela do chat (`/chat/<chave>`): só o que vale para qualquer resposta. Sem
+        // `X-Frame-Options` e sem CSP de enquadramento: quem decide quem embute é a própria
+        // rota, por conexão (`frame-ancestors` com as origens permitidas).
+        source: "/chat/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Strict-Transport-Security", value: "max-age=31536000" },
           {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(self), geolocation=(), notifications=(self)",
