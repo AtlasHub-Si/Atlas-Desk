@@ -1,4 +1,4 @@
-# AtlasHub Internal Group CRM (`crm.atlashub.si`)
+# AtlasHub Internal Group CRM (`crm.atlas-si.com`)
 
 Configuração do **Atlas-Crm-OS** (baseado em [DeskcommCRM](https://github.com/melgarafael/DeskcommCRM), licença **MIT** preservada integralmente) para operar como o **CRM Interno Multi-Atividades do Grupo AtlasHub.SI** — **não** como SaaS comercial aberto.
 
@@ -14,15 +14,15 @@ Configuração do **Atlas-Crm-OS** (baseado em [DeskcommCRM](https://github.com/
 3. **Banco de Dados (Sem Destruição):**
    - Suporta **Supabase Master AtlasHub** (conforme `docs/atlashub/FOUNDATION-01.md`) *ou* **Supabase/Postgres dedicado na VPS**.
    - **Nunca** execute resets ou drops em schemas compartilhados. Faça backup antes de aplicar migrations novas.
-4. **Ponte Bidirecional com `pay.atlashub.si` (`AtlasPayBridge`):**
-   - **Entrada (`pay.atlashub.si → crm.atlashub.si`):** Toda venda via Hotmart, Whop ou Checkout Direto cria/atualiza o cliente no CRM.
-   - **Saída (`crm.atlashub.si → pay.atlashub.si`):** Ao fechar um negócio manual/B2B (`WON`), o script `crm_to_bridge_trigger.py` (ou automação do CRM) aciona `POST /api/grants` e libera automaticamente o aluno em **`club.atlas-si.com`**.
+4. **Ponte Bidirecional com `pay.atlas-si.com` (`AtlasPayBridge`):**
+   - **Entrada (`pay.atlas-si.com → crm.atlas-si.com`):** Toda venda via Hotmart, Whop ou Checkout Direto cria/atualiza o cliente no CRM.
+   - **Saída (`crm.atlas-si.com → pay.atlas-si.com`):** Ao fechar um negócio manual/B2B (`WON`), o script `crm_to_bridge_trigger.py` (ou automação do CRM) aciona `POST /api/grants` e libera automaticamente o aluno em **`club.atlashub.si`**.
 
 ## Como subir na VPS (junto do stack mestre ou isolado)
 
 ```bash
 cd atlas/crm-internal
-cp .env.crm.atlashub.si.example .env
+cp .env.crm.atlas-si.com.example .env
 # Preencha Supabase (Master ou isolado), WAHA_HMAC_SECRET, INTERNAL_SECRET e PAY_BRIDGE_ADMIN_KEY
 docker compose -f ../../docker-compose.prod.yml -f docker-compose.crm.yml --env-file .env up -d
 ```

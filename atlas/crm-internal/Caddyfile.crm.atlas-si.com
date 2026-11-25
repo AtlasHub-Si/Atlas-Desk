@@ -1,5 +1,5 @@
-# Reverse proxy Caddy para crm.atlashub.si (CRM Interno do Grupo AtlasHub.SI)
-crm.atlashub.si {
+# Reverse proxy Caddy para crm.atlas-si.com (CRM Interno do Grupo AtlasHub.SI)
+crm.atlas-si.com {
 	encode gzip
 	route {
 		# Bloqueia webhook global do WAHA na internet pública (WAHA fala apenas na rede Docker interna)

@@ -1,7 +1,7 @@
 """
-CRM -> AtlasPayBridge Trigger (`crm.atlashub.si` -> `pay.atlashub.si`)
+CRM -> AtlasPayBridge Trigger (`crm.atlas-si.com` -> `pay.atlas-si.com`)
 Permite que uma automação do Atlas-Crm-OS (ou operador comercial / Hermes-Agent)
-libere ou revogue automaticamente acessos no AtlasClub Campus (`club.atlas-si.com`)
+libere ou revogue automaticamente acessos no AtlasClub Campus (`club.atlashub.si`)
 quando um negócio no CRM muda de etapa (ex: GANHO ou REEMBOLSADO).
 
 Zero dependências externas (Python 3.10+ stdlib).

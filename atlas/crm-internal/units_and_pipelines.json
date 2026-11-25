@@ -1,5 +1,5 @@
 {
-  "crm_domain": "crm.atlashub.si",
+  "crm_domain": "crm.atlas-si.com",
   "mode": "internal_multi_unit",
   "signup_mode": "so_convite",
   "units": [
@@ -16,7 +16,7 @@
     },
     {
       "unit_code": "AtlasClub-Commercial",
-      "name": "AtlasClub · Comunidade, Cursos & Mentorias (club.atlas-si.com)",
+      "name": "AtlasClub · Comunidade, Cursos & Mentorias (club.atlashub.si)",
       "pipelines": [
         {
           "name": "Club-Free-to-Pro",
