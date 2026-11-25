@@ -1,4 +1,14 @@
-> **Atlas-Crm-OS · AtlasHub.SI integration track** · [Atlas product context](ATLAS.md) · [Legal and support](LEGAL.md)  
+# AtlasDesk — CRM & Business Operations
+
+**Customer relationships · Leads · Commercial workflows · Future billing**
+
+AtlasDesk is the AtlasHub administrative and customer workspace. DeskcommCRM is the MIT-licensed technical foundation; existing CRM and WhatsApp capabilities require Atlas integration validation. AtlasDesk owns CRM records; AtlasHQ owns execution missions, AtlasBot provides assistance, and AtlasCortex indexes only authorized knowledge. Payment and billing integration is a future milestone, not an available service.
+
+The following upstream documentation is retained for technical reference. Upstream demonstrations, pricing and partner claims refer to DeskcommCRM, not AtlasHub.
+
+## Upstream engineering reference
+
+> **AtlasDesk · AtlasHub.SI integration track** · [Atlas product context](ATLAS.md) · [Legal and support](LEGAL.md)  
 > Curated through [SergioMonteiro-Atlas](https://github.com/sergiomonteiro-atlas); derived from [melgarafael/DeskcommCRM](https://github.com/melgarafael/DeskcommCRM). Original authorship and [MIT license](LICENSE) remain in force. This is an Atlas **integration**, not a claim that the source software originated at AtlasHub.SI.
 
 ---
@@ -937,3 +947,8 @@ Este é um projeto **self-host**: cada pessoa roda o CRM na **própria infraestr
 Siga o desenvolvimento: [Instagram](https://www.instagram.com/melgarafael) · [YouTube](https://www.youtube.com/@melgarafael)
 
 </div>
+
+
+---
+**AtlasHub · Augmented Enterprise · Unified Intelligence** | [Official website](https://atlashub.si) · [Atlas Galaxy](https://github.com/AtlasHub-Si/AtlasHub-Command-Center)
+London · Lisbon · Goiânia | AtlasGlobal Tech LTD · AtlasHub Brasil
